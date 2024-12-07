@@ -3,9 +3,27 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Code, AlertCircle, Loader } from 'lucide-react';
 
+interface ToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
+interface FunctionCall {
+  name: string;
+  arguments: string;
+}
+
 interface Message {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
+  role: 'system' | 'user' | 'assistant' | 'tool' | 'function';
+  content: string | null;
+  name?: string;
+  tool_calls?: ToolCall[];
+  function_call?: FunctionCall;
+  tool_call_id?: string;
   images?: string[];
   error?: boolean;
 }
@@ -48,12 +66,21 @@ const CodeReviewInterface = () => {
       });
 
       const data = await response.json();
-
-      setMessages(prev => [...prev, {
+      const assistantMessage: Message = {
         role: 'assistant',
-        content: data.response,
+        content: data.response.messages?.[data.response.messages.length - 1]?.content || data.response,
         images: data.images || []
-      }]);
+      };
+
+      if (data.response.messages?.[data.response.messages.length - 1]?.tool_calls) {
+        assistantMessage.tool_calls = data.response.messages[data.response.messages.length - 1].tool_calls;
+      }
+
+      if (data.response.messages?.[data.response.messages.length - 1]?.function_call) {
+        assistantMessage.function_call = data.response.messages[data.response.messages.length - 1].function_call;
+      }
+
+      setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
       setMessages(prev => [...prev, {
         role: 'system',
@@ -63,6 +90,52 @@ const CodeReviewInterface = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const renderMessageContent = (message: Message) => {
+    return (
+      <>
+        {message.error && (
+          <div className="flex items-center space-x-2 mb-2">
+            <AlertCircle className="h-4 w-4" />
+            <span className="font-medium">Error</span>
+          </div>
+        )}
+        <div className="whitespace-pre-wrap">{message.content}</div>
+        {message.tool_calls && (
+          <div className="mt-2 text-sm text-gray-600">
+            <div className="font-medium">Tool Calls:</div>
+            {message.tool_calls.map((tool, index) => (
+              <div key={tool.id} className="mt-1">
+                <div>Function: {tool.function.name}</div>
+                <pre className="bg-gray-50 p-2 rounded mt-1 overflow-x-auto">
+                  {tool.function.arguments}
+                </pre>
+              </div>
+            ))}
+          </div>
+        )}
+        {message.function_call && (
+          <div className="mt-2 text-sm text-gray-600">
+            <div className="font-medium">Function Call:</div>
+            <div className="mt-1">
+              <div>Function: {message.function_call.name}</div>
+              <pre className="bg-gray-50 p-2 rounded mt-1 overflow-x-auto">
+                {message.function_call.arguments}
+              </pre>
+            </div>
+          </div>
+        )}
+        {message.images?.map((image, imgIndex) => (
+          <img
+            key={imgIndex}
+            src={image}
+            alt={`Code snippet ${imgIndex + 1}`}
+            className="mt-2 rounded-md max-w-full"
+          />
+        ))}
+      </>
+    );
   };
 
   return (
@@ -90,21 +163,7 @@ const CodeReviewInterface = () => {
                     : 'bg-white shadow-sm border border-gray-200'
                 }`}
               >
-                {message.error && (
-                  <div className="flex items-center space-x-2 mb-2">
-                    <AlertCircle className="h-4 w-4" />
-                    <span className="font-medium">Error</span>
-                  </div>
-                )}
-                <div className="whitespace-pre-wrap">{message.content}</div>
-                {message.images?.map((image, imgIndex) => (
-                  <img
-                    key={imgIndex}
-                    src={image}
-                    alt={`Code snippet ${imgIndex + 1}`}
-                    className="mt-2 rounded-md max-w-full"
-                  />
-                ))}
+                {renderMessageContent(message)}
               </div>
             </div>
           ))}
