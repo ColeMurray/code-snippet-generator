@@ -3,18 +3,50 @@ import path from 'path';
 import os from 'os';
 import { spawn, spawnSync } from 'child_process';
 import { v4 as uuidv4 } from 'uuid';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 
 export class ContentGenerator {
     private preset_name: string | undefined;
-    private readonly outputDir: string;
+    private readonly s3Client: S3Client;
+    private readonly bucketName: string;
+    private readonly cdnDomain: string;
 
     constructor(preset_name?: string) {
         this.preset_name = preset_name;
-        // Create the output directory in public/generated-images
-        this.outputDir = path.join(process.cwd(), 'public', 'generated-images');
-        if (!fs.existsSync(this.outputDir)) {
-            fs.mkdirSync(this.outputDir, { recursive: true });
+        
+        // Initialize S3 client
+        this.s3Client = new S3Client({
+            region: process.env.BAWS_REGION || 'us-east-1',
+            credentials: {
+                accessKeyId: process.env.BAWS_ACCESS_KEY_ID || '',
+                secretAccessKey: process.env.BAWS_SECRET_ACCESS_KEY || ''
+            }
+        });
+        
+        this.bucketName = process.env.BAWS_S3_BUCKET || '';
+        this.cdnDomain = process.env.CDN_DOMAIN || '';
+        
+        if (!this.bucketName) {
+            throw new Error('AWS_S3_BUCKET environment variable is required');
         }
+    }
+
+    private async uploadToS3(filePath: string, fileName: string): Promise<string> {
+        const fileContent = fs.readFileSync(filePath);
+        const key = `generated-images/${fileName}`;
+        
+        await this.s3Client.send(new PutObjectCommand({
+            Bucket: this.bucketName,
+            Key: key,
+            Body: fileContent,
+            ContentType: 'image/png'
+        }));
+
+        // Return CDN URL if configured, otherwise return S3 URL
+        if (this.cdnDomain) {
+            return `https://${this.cdnDomain}/${key}`;
+        }
+        return `https://${this.bucketName}.s3.amazonaws.com/${key}`;
     }
 
     async generateCodeImage(code: string, preset_name?: string): Promise<string> {
@@ -22,7 +54,7 @@ export class ContentGenerator {
             console.log('Generating code image...');
             console.log('Creating temporary directory...');
             const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'code-'));
-            const tempFile = path.join(tempDir, 'code_snippet.ts');
+            const tempFile = path.join(tempDir, 'code_snippet.py');
             const outputUuid = uuidv4();
             
             console.log(`Writing code to temporary file: ${tempFile}`);
@@ -31,10 +63,14 @@ export class ContentGenerator {
             const command = ['carbon-now', tempFile, '--save-to', tempDir];
             
             if (preset_name || this.preset_name) {
-                const selectedPreset = preset_name || this.preset_name || 'dracula';
+                const selectedPreset = 'openai'//preset_name || this.preset_name || 'dracula';
                 console.log(`Using preset: ${selectedPreset}`);
                 command.push('-p', selectedPreset);
             }
+
+            
+            command.push('--config', path.join(process.cwd(), 'src', 'app', 'api', 'code_snippet_generator', 'carbon-now.json'));
+            
 
             console.log('Executing carbon-now command:', command.join(' '));
             const result = spawnSync(command[0], command.slice(1));
@@ -65,18 +101,16 @@ export class ContentGenerator {
 
             console.log(`Found ${files.length} PNG file(s)`);
             const fileName = `${outputUuid}.png`;
-            const finalPath = path.join(this.outputDir, fileName);
-            console.log(`Copying image to final location: ${finalPath}`);
-            fs.copyFileSync(
-                path.join(tempDir, files[0]),
-                finalPath
-            );
+            const generatedFilePath = path.join(tempDir, files[0]);
+
+            console.log('Uploading image to S3...');
+            const imageUrl = await this.uploadToS3(generatedFilePath, fileName);
 
             console.log('Cleaning up temporary directory...');
             fs.rmSync(tempDir, { recursive: true });
             
             console.log('Code image generation complete');
-            return `/generated-images/${fileName}`; // Return the path relative to public directory
+            return imageUrl;
         } catch (e) {
             console.error('Failed to generate code snapshot:', e);
             throw new Error(`Failed to generate code snapshot: ${(e as Error).message}`);
@@ -117,18 +151,21 @@ export class ContentGenerator {
             return new Promise((resolve, reject) => {
                 const process = spawn(command[0], command.slice(1));
 
-                process.on('close', (code) => {
+                process.on('close', async (code) => {
                     if (code !== 0) {
                         reject(new Error('Mermaid CLI failed'));
                         return;
                     }
 
-                    const fileName = `${outputUuid}.png`;
-                    const finalPath = path.join(this.outputDir, fileName);
-                    fs.copyFileSync(outputPath, finalPath);
-                    
-                    fs.rmSync(tempDir, { recursive: true });
-                    resolve(`/generated-images/${fileName}`); // Return the path relative to public directory
+                    try {
+                        const fileName = `${outputUuid}.png`;
+                        const imageUrl = await this.uploadToS3(outputPath, fileName);
+                        
+                        fs.rmSync(tempDir, { recursive: true });
+                        resolve(imageUrl);
+                    } catch (error) {
+                        reject(error);
+                    }
                 });
             });
         } catch (e) {

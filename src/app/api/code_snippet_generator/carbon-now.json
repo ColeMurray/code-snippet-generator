@@ -1,0 +1,36 @@
+{
+  "openai": {
+    "backgroundColor": "#1A1A1A",
+    "windowTheme": "none",
+    "windowControls": true,
+    "fontFamily": "Monaco",
+    "fontSize": "16px",
+    "lineNumbers": true,
+    "firstLineNumber": 1,
+    "dropShadow": false,
+    "lineHeight": "130%",
+    "paddingVertical": "24px",
+    "paddingHorizontal": "24px",
+    "squaredImage": false,
+    "watermark": false,
+    "exportSize": "2x",
+    "type": "png",
+    "custom": {
+      "background": "#1A1A1A",
+      "text": "#E5E5E5",
+      "variable": "#FFB7A4",
+      "variable2": "#7CF178",
+      "variable3": "#AFC1FF",
+      "attribute": "#FFC9C9",
+      "definition": "#E5E5E5",
+      "keyword": "#FFD3C9",
+      "operator": "#CDCDCD",
+      "property": "#C9FFC7",
+      "number": "#FFE8C1",
+      "string": "#FFD7FF",
+      "comment": "#747474",
+      "meta": "#A8A8A8",
+      "tag": "#FFB7A4"
+    }
+  }
+}

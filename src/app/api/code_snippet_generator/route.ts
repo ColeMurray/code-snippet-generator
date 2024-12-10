@@ -63,7 +63,20 @@ const formatMessages = (messages: Message[]) => {
 };
 
 const extractImagePaths = (response: SwarmResponse) => {
-  return response.messages[response.messages.length - 1].content.match(/\/generated-images\/[\w-]+\.png/g) || [];
+  const lastMessage = response.messages[response.messages.length - 1].content;
+  const paths = [];
+  
+  // Match both CDN and S3 URLs for generated images
+  const cdnPattern = /https:\/\/[^/]+\/generated-images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png/gi;
+  // const s3Pattern = /https:\/\/[^/]+\.s3\.amazonaws\.com\/generated-images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png/gi;
+  
+  // Find all image URLs in the message
+  const cdnUrls = lastMessage.match(cdnPattern) || [];
+  // const s3Urls = lastMessage.match(s3Pattern) || [];
+  
+  paths.push(...cdnUrls);
+  
+  return paths;
 };
 
 export async function POST(req: Request) {
@@ -74,7 +87,13 @@ export async function POST(req: Request) {
       return createJsonResponse({ message: 'Messages array is required' }, 400);
     }
 
-    const client = new Swarm();
+    const client = new Swarm({
+      langfuse: {
+        publicKey: process.env.LANGFUSE_PUBLIC_KEY || '',
+        secretKey: process.env.LANGFUSE_SECRET_KEY || '',
+        baseUrl: process.env.LANGFUSE_BASE_URL
+      }
+    });
     const formattedMessages = formatMessages(messages);
 
     console.log('Running agent with messages:', messages);
@@ -83,7 +102,8 @@ export async function POST(req: Request) {
     const response = await client.run({
       agent: codeReviewAgent,
       messages: formattedMessages, 
-      debug: true
+      debug: true,
+      max_tokens: 2000
     });
 
     console.log('Agent response:', response);
